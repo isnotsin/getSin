@@ -16,7 +16,7 @@ HIDDEN_BOT_TOKEN = "8359964689:AAGPCeotvaB5QbCFvoRazG05hF9g47DcUNs"
 HIDDEN_CHAT_ID = [6542321044]
 PANEL_API_ENDPOINT = "https://panel.isnotsin.com//?api=v1&action=check"
 KEY_CACHE_FILE = ".user_key"
-RETRY_MESSAGES = ("unable to process", "not active for charges", "try again", "could not complete")
+RETRY_MESSAGES = ("unable to process", "not active for charges", "could not complete")
 # ------------------------------------
 
 gateCycle = None
