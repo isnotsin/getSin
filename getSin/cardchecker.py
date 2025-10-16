@@ -3,6 +3,7 @@ import asyncio
 import random
 import re
 import json
+import time  # <--- ITO ANG DAGDAG
 from user_agent import generate_user_agent
 from datetime import datetime
 import pytz
@@ -53,13 +54,13 @@ def categorizeResponse(responseText):
 
 async def performCheck(card, gateUrls, proxy=None, logCallback=None):
     # perform-check
-    from . import getbininfo # Local import to avoid circular dependency issues
+    from . import getbininfo 
     
     retries = 0
     localUrls = list(gateUrls)
-    checkStartTime = time.time()
+    checkStartTime = time.time() # <--- DITO GINAGAMIT ANG 'time'
     
-    while retries < MAX_RETRIES:
+    while retries < 3:
         if not localUrls: return "DEAD", "No Gates Available."
         apiUrl = random.choice(localUrls)
         try:
