@@ -8,7 +8,7 @@ LONG_DESCRIPTION = (THIS_DIR / "README.md").read_text()
 
 setup(
     name=PACKAGE,
-    version='0.0.6',
+    version='0.0.7',
     description="Sin Checker",
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
