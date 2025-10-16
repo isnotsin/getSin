@@ -1,7 +1,13 @@
 import aiohttp
 import re
+import os
+import sqlite3
 from bs4 import BeautifulSoup
 from user_agent import generate_user_agent
+
+# Path ng local database
+DB_FOLDER = ".db"
+DB_FILE_PATH = os.path.join(DB_FOLDER, "bin.db")
 
 gBinInfoCache = {}
 
@@ -10,7 +16,13 @@ def getCountryFlag(code):
 
 async def initialize():
     # initialize-bin-module
-    print("[getSin] BIN Info module initialized (Online Scrape Mode).")
+    # Gagawa ng .db folder kung wala pa.
+    os.makedirs(DB_FOLDER, exist_ok=True)
+    if not os.path.exists(DB_FILE_PATH):
+        print(f"[getSin] WARNING: Database file not found at '{DB_FILE_PATH}'.")
+        #print("[getSin] Scraper will be used. For faster checking, please provide the bin.db file.")
+    else:
+        print("[getSin] Local BIN database found.")
     return True
 
 async def getInfo(binPrefix):
@@ -19,6 +31,22 @@ async def getInfo(binPrefix):
     if binPrefix in gBinInfoCache:
         return gBinInfoCache[binPrefix]
 
+    # Step 1: Subukang kunin mula sa local DB
+    if os.path.exists(DB_FILE_PATH):
+        try:
+            with sqlite3.connect(DB_FILE_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM bin_info WHERE bin = ?", (binPrefix,))
+                row = cursor.fetchone()
+                if row:
+                    binData = dict(row)
+                    gBinInfoCache[binPrefix] = binData
+                    return binData
+        except Exception:
+            pass # Kung mag-fail, ituloy lang sa pag-scrape
+
+    # Step 2: Fallback - mag-scrape online kung wala sa DB
     try:
         async with aiohttp.ClientSession() as session:
             headers = {'User-Agent': generate_user_agent()}
